@@ -32,6 +32,7 @@ public enum XMLError : Error {
     case subscriptFailue(String)
     case initFailue(String)
     case wrongChain(String)
+    case parseFailure(String)
 }
 
 @dynamicMemberLookup
@@ -201,7 +202,11 @@ open class XML {
 
     internal weak var parent:XML?
     
-    public init(name:String, attributes:[String:Any] = [:], value: Any? = nil) {
+    public init(
+        name:String,
+        attributes:[String:Any] = [:],
+        value: Any? = nil
+    ) throws {
         self.name = name
         self.addAttributes(attributes)
         if let value = value {
@@ -209,49 +214,46 @@ open class XML {
         }
     }
     
-    private convenience init(xml: XML) {
-        self.init(name: xml.name, attributes: xml.attributes, value: xml.value)
+    private convenience init(xml: XML) throws {
+        try self.init(name: xml.name, attributes: xml.attributes, value: xml.value)
         self.addChildren(xml.children)
         self.parent = nil
     }
     
-    public convenience init!(data: Data) {
+    public convenience init(data: Data) throws {
         do {
             let parser = SimpleXMLParser(data: data)
             try parser.parse()
             if let xml = parser.root {
-                self.init(xml: xml)
+                try self.init(xml: xml)
             } else {
-                fatalError("xml parser exception")
+                throw XMLError.parseFailure("xml parser exception")
             }
+        } catch let error as XMLError {
+            throw error
         } catch {
-            print(error.localizedDescription)
-            return nil
+            throw XMLError.initFailue("Failed to initialize")
         }
     }
     
-    public convenience init!(url: URL) {
-        do {
-            let data = try Data(contentsOf: url)
-            self.init(data: data)
-        } catch {
-            print(error.localizedDescription)
-            return nil
-        }
+    public convenience init(url: URL) throws {
+        let data = try Data(contentsOf: url)
+        try self.init(data: data)
+        
     }
     
-    public convenience init(named name: String) {
+    public convenience init(named name: String) throws {
         guard let url = Bundle.main.resourceURL?.appendingPathComponent(name) else {
-            fatalError("can not get mainBundle URL")
+            throw XMLError.initFailue("can not get mainBundle URL")
         }
-        self.init(url: url)
+        try self.init(url: url)
     }
     
-    public convenience init(string: String, encoding: String.Encoding = .utf8) {
+    public convenience init(string: String, encoding: String.Encoding = .utf8) throws {
         guard let data = string.data(using: encoding) else {
-            fatalError("string encoding failed")
+            throw XMLError.initFailue("string encoding failed")
         }
-        self.init(data: data)
+        try self.init(data: data)
     }
     
     public subscript(dynamicMember member: String) -> XMLSubscriptResult {
@@ -636,14 +638,19 @@ public class SimpleXMLParser: NSObject, XMLParserDelegate {
                              qualifiedName qName: String?,
                              attributes attributeDict: [String : String])
     {
-        let element = XML(name: elementName, attributes: attributeDict)
-        
-        if self.root == nil {
-            self.root = element
-            self.currentElement = element
-        } else {
-            self.currentElement?.addChild(element)
-            self.currentElement = element
+        do {
+            let element = try XML(name: elementName, attributes: attributeDict)
+            
+            if self.root == nil {
+                self.root = element
+                self.currentElement = element
+            } else {
+                self.currentElement?.addChild(element)
+                self.currentElement = element
+            }
+        } catch {
+            self.root = nil
+            self.currentElement = nil
         }
     }
     
